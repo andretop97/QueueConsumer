@@ -10,28 +10,28 @@ import (
 
 type queueConfig struct {
 	dlxName *string
-	msgTTL *int64
+	msgTTL  *int64
 }
 
 type RabbitMQConsumer struct {
 	connection *amqp.Connection
-	channel *amqp.Channel
-	queueName string
+	channel    *amqp.Channel
+	queueName  string
 }
 
-func (r *RabbitMQConsumer) createConnection(url string){
+func (r *RabbitMQConsumer) createConnection(url string) {
 	conn, err := amqp.Dial(url)
 	utils.FailOnError(err, "Failed to initialize connection")
 	r.connection = conn
 }
 
-func (r *RabbitMQConsumer) createChannel(){
+func (r *RabbitMQConsumer) createChannel() {
 	channel, err := r.connection.Channel()
 	utils.FailOnError(err, "Failed to create channel")
 	r.channel = channel
 }
 
-func (r *RabbitMQConsumer) cretaeExchange(exchangeName string) {
+func (r *RabbitMQConsumer) createExchange(exchangeName string) {
 	err := r.channel.ExchangeDeclare(
 		exchangeName,
 		"fanout",
@@ -80,7 +80,7 @@ func (r *RabbitMQConsumer) createBind(exchangeName string, queueName string) {
 }
 
 func (r *RabbitMQConsumer) createExchangeAndQueueWithBind(exchangeName string, queueName string, queueConfig queueConfig) {
-	r.cretaeExchange(exchangeName)
+	r.createExchange(exchangeName)
 	slog.Info(fmt.Sprintf("Exchange %s created successfuly", exchangeName))
 	r.createQueue(queueName, queueConfig)
 	slog.Info(fmt.Sprintf("Queue %s created successfuly", queueName))
@@ -89,7 +89,7 @@ func (r *RabbitMQConsumer) createExchangeAndQueueWithBind(exchangeName string, q
 
 }
 
-func (consumer *RabbitMQConsumer) createSimpleQueue(serviceName string){
+func (consumer *RabbitMQConsumer) createSimpleQueue(serviceName string) {
 	exchangeName := fmt.Sprintf("%s-exchange", serviceName)
 	queueName := fmt.Sprintf("%s-queue", serviceName)
 	consumer.queueName = queueName
@@ -97,7 +97,7 @@ func (consumer *RabbitMQConsumer) createSimpleQueue(serviceName string){
 
 }
 
-func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string){
+func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string) {
 	exchangeName := fmt.Sprintf("%s-exchange", serviceName)
 	queueName := fmt.Sprintf("%s-queue", serviceName)
 
@@ -107,7 +107,6 @@ func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string){
 	qConfig := queueConfig{}
 	qConfig.dlxName = &dlxName
 
-	
 	consumer.createExchangeAndQueueWithBind(dlxName, dlqName, queueConfig{})
 
 	consumer.createExchangeAndQueueWithBind(exchangeName, queueName, qConfig)
@@ -138,7 +137,7 @@ func (r *RabbitMQConsumer) getConsumer(queueName string) <-chan amqp.Delivery {
 	return delivery
 }
 
-func (r *RabbitMQConsumer) Consume(handler func(string) error){
+func (r *RabbitMQConsumer) Consume(handler func(string) error) {
 	delivery := r.getConsumer(r.queueName)
 
 	var forever chan struct{}
@@ -153,7 +152,7 @@ func (r *RabbitMQConsumer) Consume(handler func(string) error){
 				slog.Error("Erro ao consumir mensagem", "error", err)
 				message.Nack(false, false)
 				// message.Reject(true)
-			}else{
+			} else {
 				message.Ack(false)
 			}
 		}
@@ -161,13 +160,16 @@ func (r *RabbitMQConsumer) Consume(handler func(string) error){
 
 	slog.Info(" [*] Waiting for messages. To exit press CTRL+C")
 	<-forever
-	
 
 }
 
-func (r *RabbitMQConsumer) StopConsumer(){
-	err := r.channel.Close(); 
-	utils.FailOnError(err, "Filed to close channel")
-    err = r.connection.Close()
-	utils.FailOnError(err, "Filed to close connection")
+func (r *RabbitMQConsumer) StopConsumer() {
+	err := r.channel.Close()
+	if err != nil {
+		slog.Error("Filed to close channel")
+	}
+	err = r.connection.Close()
+	if err != nil {
+		slog.Error("Filed to close connection")
+	}
 }
