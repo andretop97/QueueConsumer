@@ -1,9 +1,9 @@
 //go:build integration
 
 // Testes de integração contra o RabbitMQ do docker-compose.
-// Rodar com: go test -tags=integration ./src/consumer -v
+// Rodar com: go test -tags=integration ./internal/rabbitmq -v
 // Credenciais vêm do ambiente ou do .env na raiz do repositório; sem broker acessível, os testes são pulados.
-package consumer
+package rabbitmq
 
 import (
 	"errors"
@@ -15,7 +15,7 @@ import (
 	"github.com/joho/godotenv"
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/andretop97/Queue_consumer_golang/src/utils"
+	"github.com/andretop97/Queue_consumer_golang/internal/config"
 )
 
 const waitTimeout = 10 * time.Second
@@ -40,13 +40,13 @@ func brokerURL(t *testing.T) string {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
 
-	user := utils.GetEnv("RABBITMQ_DEFAULT_USER")
-	pass := utils.GetEnv("RABBITMQ_DEFAULT_PASS")
+	user := config.GetEnv("RABBITMQ_DEFAULT_USER")
+	pass := config.GetEnv("RABBITMQ_DEFAULT_PASS")
 	if user == "" || pass == "" {
 		t.Skip("RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS não definidos")
 	}
-	host := utils.GetEnvOrDefault("RABBITMQ_DEFAULT_HOST", "localhost")
-	port := utils.GetEnvOrDefault("RABBITMQ_DEFAULT_PORT", "5672")
+	host := config.GetEnvOrDefault("RABBITMQ_DEFAULT_HOST", "localhost")
+	port := config.GetEnvOrDefault("RABBITMQ_DEFAULT_PORT", "5672")
 	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, pass, host, port)
 
 	conn, err := amqp.Dial(url)

@@ -23,7 +23,7 @@ Divisão de responsabilidades (ver `CLAUDE.md`): **[Claude]** escreve apenas tes
 
 | # | [Você] implementa | [Claude] testa |
 |---|---|---|
-| A1 | Mover para `cmd/` + `internal/`, renomear arquivos para minúsculo | Ajustar testes aos novos pacotes |
+| A1 ✅ | Mover para `cmd/` + `internal/`, renomear arquivos para minúsculo | Ajustar testes aos novos pacotes |
 | A2 | `internal/config` | Obrigatórios ausentes, defaults, URL com caracteres especiais |
 | A3 | `messaging`: `Message`, `Handler`, `ErrPermanent`, `Decide` | Tabela de casos do `Decide` |
 | A4 | Middlewares `Recover` e `Logging` (logger injetado) | Panic vira erro; log contém os campos esperados |

@@ -1,10 +1,10 @@
-package consumer
+package rabbitmq
 
 import (
 	"fmt"
 	"log/slog"
 
-	"github.com/andretop97/Queue_consumer_golang/src/utils"
+	CustomErrors "github.com/andretop97/Queue_consumer_golang/internal/custom_errors"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -21,13 +21,13 @@ type RabbitMQConsumer struct {
 
 func (r *RabbitMQConsumer) createConnection(url string) {
 	conn, err := amqp.Dial(url)
-	utils.FailOnError(err, "Failed to initialize connection")
+	CustomErrors.FailOnError(err, "Failed to initialize connection")
 	r.connection = conn
 }
 
 func (r *RabbitMQConsumer) createChannel() {
 	channel, err := r.connection.Channel()
-	utils.FailOnError(err, "Failed to create channel")
+	CustomErrors.FailOnError(err, "Failed to create channel")
 	r.channel = channel
 }
 
@@ -41,7 +41,7 @@ func (r *RabbitMQConsumer) createExchange(exchangeName string) {
 		false,
 		nil,
 	)
-	utils.FailOnError(err, "Failed to declare Exchange")
+	CustomErrors.FailOnError(err, "Failed to declare Exchange")
 }
 
 func (r *RabbitMQConsumer) createQueue(queueName string, queueConfig queueConfig) {
@@ -64,7 +64,7 @@ func (r *RabbitMQConsumer) createQueue(queueName string, queueConfig queueConfig
 		args,
 	)
 
-	utils.FailOnError(err, "Failed to declare queue")
+	CustomErrors.FailOnError(err, "Failed to declare queue")
 }
 
 func (r *RabbitMQConsumer) createBind(exchangeName string, queueName string) {
@@ -76,7 +76,7 @@ func (r *RabbitMQConsumer) createBind(exchangeName string, queueName string) {
 		nil,
 	)
 
-	utils.FailOnError(err, "Failed to create bind between exchange and queue")
+	CustomErrors.FailOnError(err, "Failed to create bind between exchange and queue")
 }
 
 func (r *RabbitMQConsumer) createExchangeAndQueueWithBind(exchangeName string, queueName string, queueConfig queueConfig) {
@@ -134,7 +134,7 @@ func (r *RabbitMQConsumer) getConsumer(queueName string) <-chan amqp.Delivery {
 		false,
 		nil,
 	)
-	utils.FailOnError(err, "Failed to create consumer")
+	CustomErrors.FailOnError(err, "Failed to create consumer")
 	return delivery
 }
 

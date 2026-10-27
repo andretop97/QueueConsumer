@@ -1,5 +1,5 @@
-package consumer
+package messaging
 
-type IConsumer interface {
+type Consumer interface {
 	Consume(handler func(message string) error)
 }

@@ -22,7 +22,7 @@ A small Go application demonstrating a RabbitMQ consumer with a dead-letter queu
 docker-compose up -d
 
 # Run the consumer (requires a .env file, see below)
-go run main.go
+go run ./cmd/consumer   # from the repo root: LoadEnv reads .env relative to the cwd
 
 # Build
 go build ./...
@@ -34,7 +34,7 @@ go mod tidy
 go test ./...
 
 # Run a single test
-go test ./src/consumer -run TestName -v
+go test ./internal/config -run TestName -v
 
 # Integration tests (build tag `integration`; need the docker-compose RabbitMQ running)
 go test -tags=integration ./...
@@ -54,17 +54,18 @@ Copy `.env.exemple` to `.env` (note the filename typo — "exemple", not "exampl
 
 ## Architecture
 
-- `main.go` — wires everything together: loads env, configures the logger, builds the AMQP URL, constructs a `RabbitMQConsumer`, and starts consuming with a `handler(body string) error` callback (currently just prints the message body).
-- `src/consumer/IConsumer.go` — defines the `IConsumer` interface (`Consume(handler func(message string) error)`) that consumer implementations should satisfy.
-- `src/consumer/RabbitmqConsumer.go` — the RabbitMQ implementation and the core of the project:
+Layout is in transition towards `docs/ARCHITECTURE.md` (step A1 — move to `cmd/` + `internal/` — is done).
+
+- `cmd/consumer/main.go` — wires everything together: loads env, configures the logger, builds the AMQP URL, constructs a `RabbitMQConsumer`, and starts consuming with a `handler(body string) error` callback (currently just prints the message body). Builds the AMQP URL with `net/url` (`url.UserPassword` + `net.JoinHostPort`), so credentials with special characters are escaped; the URL is not logged.
+- `internal/messaging/consumer.go` — the `Consumer` port (`Consume(handler func(message string) error)`). Constructors return concrete types (`*RabbitMQConsumer`), not this interface.
+- `internal/rabbitmq/consumer.go` — the RabbitMQ adapter and the core of the project:
   - `NewRabbitMQConsumer(url, serviceName)` opens the connection/channel and calls `createQueueWithDlq`, which declares **two** exchange+queue+bind sets per service: `{serviceName}-dlx`/`{serviceName}-dlq` first, then `{serviceName}-exchange`/`{serviceName}-queue` configured with `x-dead-letter-exchange` pointing at the dlx. This ordering matters — the DLX must exist before the main queue references it.
   - `Consume` runs the delivery loop in a goroutine and blocks the calling goroutine forever on a nil `chan struct{}` (`forever`) — there is no clean shutdown, and if the connection drops the process hangs without consuming. `StopConsumer` exists but its `defer` in `main.go` never runs (Ctrl+C kills the process; `os.Exit` skips defers).
   - No `channel.Qos` prefetch is configured.
   - Nack is called with requeue=`false` (`message.Nack(false, false)`), so failed messages go to the DLQ rather than looping back onto the main queue.
-- `src/logger/logger.go` — thin wrapper around `log/slog` with JSON output at Debug level; `SetLoggerSettings()` must be called once at startup. The `Info/Warn/Error/Debug` wrappers are currently unused.
-- `src/utils/env.go` — `.env` loading (`godotenv`) plus `GetEnv`/`GetEnvOrDefault` helpers.
-- `src/utils/error.go` — `FailOnError` logs via `slog.Error` and then calls `os.Exit(1)`. Consequences for testing: any code path that hits it on error kills the test binary, so error paths in `RabbitmqConsumer.go` (and `NewRabbitMQConsumer`, which always returns a `nil` error) cannot be unit-tested as-is — report this to the user rather than changing it.
-- `main.go` builds the AMQP URL with `net/url` (`url.UserPassword` + `net.JoinHostPort`), so credentials with special characters are escaped; the URL is not logged.
+- `internal/logger/logger.go` — thin wrapper around `log/slog` with JSON output at Debug level; `SetLoggerSettings()` must be called once at startup. The `Info/Warn/Error/Debug` wrappers are currently unused. Temporary: goes away once the logger is injected (A4/A6).
+- `internal/config/env.go` — `.env` loading (`godotenv`) plus `GetEnv`/`GetEnvOrDefault` helpers. Base for step A2.
+- `internal/custom_errors/error.go` — `FailOnError` logs via `slog.Error` and then calls `os.Exit(1)`. Temporary: goes away once errors are returned (A6). Consequences for testing: any code path that hits it on error kills the test binary, so error paths in `internal/rabbitmq` (and `NewRabbitMQConsumer`, which always returns a `nil` error) cannot be unit-tested as-is — report this to the user rather than changing it.
 
 ## Notes for making changes
 
