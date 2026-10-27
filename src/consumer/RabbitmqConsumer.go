@@ -100,6 +100,7 @@ func (consumer *RabbitMQConsumer) createSimpleQueue(serviceName string) {
 func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string) {
 	exchangeName := fmt.Sprintf("%s-exchange", serviceName)
 	queueName := fmt.Sprintf("%s-queue", serviceName)
+	consumer.queueName = queueName
 
 	dlxName := fmt.Sprintf("%s-dlx", serviceName)
 	dlqName := fmt.Sprintf("%s-dlq", serviceName)

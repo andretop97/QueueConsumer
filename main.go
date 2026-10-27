@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
+	"net"
+	"net/url"
 
 	"github.com/andretop97/Queue_consumer_golang/src/consumer"
 	"github.com/andretop97/Queue_consumer_golang/src/logger"
@@ -15,9 +16,13 @@ func getRabbitURLfromEnv() string {
 	hostname := utils.GetEnvOrDefault("RABBITMQ_DEFAULT_HOST", "localhost")
 	port := utils.GetEnvOrDefault("RABBITMQ_DEFAULT_PORT", "5672")
 
-	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", username, password, hostname, port) 
-	slog.Info(url)
-	return url
+	u := url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(username, password),
+		Host:   net.JoinHostPort(hostname, port),
+		Path:   "/",
+	}
+	return u.String()
 
 }
 
