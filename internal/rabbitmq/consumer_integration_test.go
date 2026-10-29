@@ -236,13 +236,13 @@ func TestConsumeAcksSuccessfulMessage(t *testing.T) {
 	}
 }
 
-func TestNewRabbitMQConsumerSetsQueueName(t *testing.T) {
+func TestNewRabbitMQConsumerConsumesFromMainQueue(t *testing.T) {
 	url := brokerURL(t)
 	admin := adminChannel(t, url)
 	consumer, names := newTestConsumer(t, url, admin)
 	defer consumer.StopConsumer()
 
-	if consumer.queueName != names.queue {
-		t.Errorf("queueName = %q, esperado %q", consumer.queueName, names.queue)
+	if consumer.topology.Queue != names.queue {
+		t.Errorf("topology.Queue = %q, esperado %q", consumer.topology.Queue, names.queue)
 	}
 }

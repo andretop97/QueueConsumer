@@ -17,6 +17,8 @@ A small Go application demonstrating a RabbitMQ consumer with a dead-letter queu
 
 ## Commands
 
+The module targets Go 1.26 (`go.mod`), so newer stdlib/testing APIs are fine: `slices.Backward`, `slog.DiscardHandler`, `t.Chdir`, `t.Context()`.
+
 ```sh
 # Start RabbitMQ (management UI on :15672, AMQP on :5672)
 docker-compose up -d
@@ -61,9 +63,10 @@ Config is loaded by `config.Load()` (`internal/config/env.go`): `godotenv.Load()
 Layout is in transition towards `docs/ARCHITECTURE.md` (step A1 — move to `cmd/` + `internal/` — is done).
 
 - `cmd/consumer/main.go` — wires everything together: loads env, configures the logger, builds the AMQP URL, constructs a `RabbitMQConsumer`, and starts consuming with a `handler(body string) error` callback (currently just prints the message body). Loads config via `config.Load()` and exits with code 1 on error; the URL is not logged.
-- `internal/messaging/consumer.go` — the `Consumer` port (`Consume(handler func(message string) error)`). Constructors return concrete types (`*RabbitMQConsumer`), not this interface.
-- `internal/rabbitmq/consumer.go` — the RabbitMQ adapter and the core of the project:
-  - `NewRabbitMQConsumer(url, serviceName)` opens the connection/channel and calls `createQueueWithDlq`, which declares **two** exchange+queue+bind sets per service: `{serviceName}-dlx`/`{serviceName}-dlq` first, then `{serviceName}-exchange`/`{serviceName}-queue` configured with `x-dead-letter-exchange` pointing at the dlx. This ordering matters — the DLX must exist before the main queue references it.
+- `internal/messaging/` — broker-agnostic core (stdlib only, step A3): `Message{Body, Headers, Attempts}` (`Attempts` = previous failures, 0 on first delivery), `Handler` + `HandlerFunc`, `Consumer` port (`Consume(ctx, Handler) error`), `ErrPermanent` sentinel (match with `errors.Is`), and the pure `Decide(err, attempts, maxRetries) Action` policy. `Action` starts at `iota + 1` so the zero value is never `Ack`. With `maxRetries = N` a always-failing message runs N+1 times. `RabbitMQConsumer` does not implement the new `Consumer` port yet (A6). Middlewares (step A4, `middleware.go`): `Middleware func(Handler) Handler`; `Chain(h, mws...)` makes the first middleware outermost; `Recover()` turns a panic into an error matching both `ErrPanic` and `ErrPermanent` (→ `DeadLetter`); `Logging(logger)` emits one line per message (INFO on success, ERROR with `error` on failure; fields `attempts`, `body_bytes`, `duration`; never the body) and returns the handler's error unchanged. Recommended order: `Chain(h, Logging(l), Recover())`. Constructors return concrete types, not interfaces.
+- `internal/rabbitmq/topology.go` — `Topology{Exchange, Queue, DLX, DLQ}` (step A5). `NewTopology(serviceName)` is pure (just derives the names); `Declare(ch)` declares **two** exchange+queue+bind sets and returns errors (no `FailOnError`): `{serviceName}-dlx`/`{serviceName}-dlq` first, then `{serviceName}-exchange`/`{serviceName}-queue` with `x-dead-letter-exchange` pointing at the dlx. This ordering matters — the DLX must exist before the main queue references it.
+- `internal/rabbitmq/consumer.go` — the RabbitMQ adapter:
+  - `NewRabbitMQConsumer(url, serviceName)` opens the connection/channel (still via `FailOnError`), then builds and declares the `Topology`, returning its error. The consumer keeps the `Topology` in an unexported `topology` field and consumes from `topology.Queue`.
   - `Consume` runs the delivery loop in a goroutine and blocks the calling goroutine forever on a nil `chan struct{}` (`forever`) — there is no clean shutdown, and if the connection drops the process hangs without consuming. `StopConsumer` exists but its `defer` in `main.go` never runs (Ctrl+C kills the process; `os.Exit` skips defers).
   - No `channel.Qos` prefetch is configured.
   - Nack is called with requeue=`false` (`message.Nack(false, false)`), so failed messages go to the DLQ rather than looping back onto the main queue.

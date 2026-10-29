@@ -1,5 +1,7 @@
 package messaging
 
+import "context"
+
 type Consumer interface {
-	Consume(handler func(message string) error)
+	Consume(ctx context.Context, h Handler) error
 }

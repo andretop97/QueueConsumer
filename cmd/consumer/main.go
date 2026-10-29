@@ -27,8 +27,8 @@ func main() {
 	url := config.RabbitMQ.URL()
 
 	consumer, err := rabbitmq.NewRabbitMQConsumer(url, config.ServiceName)
+	CustomErrors.FailOnError(err, "Failed to create consumer")
 	defer consumer.StopConsumer()
 
-	CustomErrors.FailOnError(err, "Failed to create consumer")
 	consumer.Consume(handler)
 }

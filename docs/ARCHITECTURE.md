@@ -4,7 +4,7 @@ Este documento descreve para onde o projeto está evoluindo. O estado atual est�
 
 ## Estrutura
 
-```
+```text
 cmd/consumer/main.go          → só "wiring": config, logger, broker, handler, sinais
 internal/
   config/      config.go      → struct Config + Load() (valida obrigatórios, monta URL)
@@ -41,7 +41,7 @@ var ErrPermanent = errors.New("permanent") // vai direto para a DLQ, sem retry
 
 - `main` é o **único** lugar que cria o `*slog.Logger` (JSON, nível vindo de `Config`). O pacote `src/logger` deixa de existir.
 - Construtores recebem o logger como parâmetro: `rabbitmq.NewConsumer(url, topo, logger)`.
-- `nil` nunca é aceito silenciosamente: substituir por `slog.New(slog.NewTextHandler(io.Discard, nil))`.
+- `nil` nunca é aceito silenciosamente: substituir por `slog.New(slog.DiscardHandler)` (Go 1.24+).
 - Contexto via `.With()`: `logger.With("component", "rabbitmq")` na criação, `log.With("message_id", ...)` por mensagem. Nada de `slog.Default()`/`slog.SetDefault` fora do `main`.
 - Funções puras (ex.: `Decide`) não logam.
 - Pacotes priorizam **retornar erros**; logam apenas eventos que não são erro (reconexão, topologia declarada).

@@ -25,20 +25,7 @@ func isolateEnv(t *testing.T) {
 		t.Setenv(key, "")
 		os.Unsetenv(key)
 	}
-	chdir(t, t.TempDir())
-}
-
-// chdir muda o diretório de trabalho durante o teste (t.Chdir só existe a partir do Go 1.24).
-func chdir(t *testing.T, dir string) {
-	t.Helper()
-	original, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chdir(original) })
+	t.Chdir(t.TempDir())
 }
 
 func setRequiredEnv(t *testing.T) {
