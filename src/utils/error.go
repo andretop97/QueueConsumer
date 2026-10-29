@@ -1,4 +1,4 @@
-package customErrors
+package utils
 
 import (
 	"log/slog"

@@ -11,18 +11,18 @@ func SetLoggerSettings() {
 	slog.SetDefault(logger)
 }
 
-func Info(message string) {
+func Info(message string){
 	slog.Info(message)
 }
 
-func Warn(message string) {
+func Warn(message string){
 	slog.Warn(message)
 }
 
-func Error(message string) {
+func Error(message string){
 	slog.Error(message)
 }
 
-func Debug(message string) {
+func Debug(message string){
 	slog.Debug(message)
 }
