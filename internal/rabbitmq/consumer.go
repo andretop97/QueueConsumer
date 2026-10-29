@@ -1,35 +1,58 @@
 package rabbitmq
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
-	CustomErrors "github.com/andretop97/Queue_consumer_golang/internal/custom_errors"
+	"github.com/andretop97/Queue_consumer_golang/internal/messaging"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+const maxRetries = 0
+
+var _ messaging.Consumer = (*RabbitMQConsumer)(nil)
 
 type RabbitMQConsumer struct {
 	connection *amqp.Connection
 	channel    *amqp.Channel
 	topology   Topology
+	logger     *slog.Logger
 }
 
-func (r *RabbitMQConsumer) createConnection(url string) {
+func (r *RabbitMQConsumer) createConnection(url string) error {
 	conn, err := amqp.Dial(url)
-	CustomErrors.FailOnError(err, "Failed to initialize connection")
+	if err != nil {
+		return fmt.Errorf("criando conexão: %w", err)
+	}
 	r.connection = conn
+	return nil
 }
 
-func (r *RabbitMQConsumer) createChannel() {
+func (r *RabbitMQConsumer) createChannel() error {
 	channel, err := r.connection.Channel()
-	CustomErrors.FailOnError(err, "Failed to create channel")
+	if err != nil {
+		return fmt.Errorf("criando canal: %w", err)
+	}
 	r.channel = channel
+	return nil
+
 }
 
-func NewRabbitMQConsumer(url string, serviceName string) (*RabbitMQConsumer, error) {
-	consumer := new(RabbitMQConsumer)
-	consumer.createConnection(url)
-	consumer.createChannel()
+func NewRabbitMQConsumer(url string, serviceName string, logger *slog.Logger) (*RabbitMQConsumer, error) {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	consumer := &RabbitMQConsumer{logger: logger.With("component", "rabbitmq")}
+	err := consumer.createConnection(url)
+	if err != nil {
+		return nil, err
+	}
+	err = consumer.createChannel()
+	if err != nil {
+		consumer.connection.Close()
+		return nil, err
+	}
 	consumer.topology = NewTopology(serviceName)
 	if err := consumer.topology.Declare(consumer.channel); err != nil {
 		consumer.channel.Close()
@@ -39,53 +62,63 @@ func NewRabbitMQConsumer(url string, serviceName string) (*RabbitMQConsumer, err
 	return consumer, nil
 }
 
-func (r *RabbitMQConsumer) getConsumer(queueName string) <-chan amqp.Delivery {
-	delivery, err := r.channel.Consume(
-		queueName,
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
+func (r *RabbitMQConsumer) Consume(ctx context.Context, handler messaging.Handler) error {
+	deliveries, err := r.channel.ConsumeWithContext(
+		ctx, r.topology.Queue, "", false, false, false, false, nil,
 	)
-	CustomErrors.FailOnError(err, "Failed to create consumer")
-	return delivery
-}
 
-func (r *RabbitMQConsumer) Consume(handler func(string) error) {
-	delivery := r.getConsumer(r.topology.Queue)
-
-	var forever chan struct{}
-
-	go func() {
-		for message := range delivery {
-			body := string(message.Body)
-			slog.Info("Mensagem recebida", "msg", body)
-			err := handler(body)
-
-			if err != nil {
-				slog.Error("Erro ao consumir mensagem", "error", err)
-				message.Nack(false, false)
-				// message.Reject(true)
-			} else {
-				message.Ack(false)
-			}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
 		}
-	}()
+		return fmt.Errorf("iniciando consumo de %q: %w", r.topology.Queue, err)
+	}
 
-	slog.Info(" [*] Waiting for messages. To exit press CTRL+C")
-	<-forever
+	r.logger.Info("aguardando mensagens", "queue", r.topology.Queue)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case d, ok := <-deliveries:
+			if !ok {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("canal de entregas de %q foi fechado", r.topology.Queue)
+			}
+
+			r.handle(ctx, handler, d)
+
+		}
+	}
 
 }
 
-func (r *RabbitMQConsumer) StopConsumer() {
-	err := r.channel.Close()
-	if err != nil {
-		slog.Error("Filed to close channel")
+func (r *RabbitMQConsumer) handle(ctx context.Context, h messaging.Handler, d amqp.Delivery) {
+	msg := messaging.Message{
+		Body:     d.Body,
+		Headers:  d.Headers,
+		Attempts: 0,
 	}
-	err = r.connection.Close()
-	if err != nil {
-		slog.Error("Filed to close connection")
+
+	err := h.Handle(context.WithoutCancel(ctx), msg)
+
+	action := messaging.Decide(err, msg.Attempts, maxRetries)
+
+	var ackErr error
+	switch action {
+	case messaging.Ack:
+		ackErr = d.Ack(false)
+	default:
+		ackErr = d.Nack(false, false)
 	}
+
+	if ackErr != nil {
+		r.logger.Error("falha ao confirmar mensagem", "action", action, "error", ackErr)
+	}
+
+}
+
+func (r *RabbitMQConsumer) StopConsumer() error {
+	return r.connection.Close()
 }

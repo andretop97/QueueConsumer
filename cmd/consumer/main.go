@@ -1,34 +1,46 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
-	Config "github.com/andretop97/Queue_consumer_golang/internal/config"
-	CustomErrors "github.com/andretop97/Queue_consumer_golang/internal/custom_errors"
-	Logger "github.com/andretop97/Queue_consumer_golang/internal/logger"
+	"github.com/andretop97/Queue_consumer_golang/internal/config"
+	"github.com/andretop97/Queue_consumer_golang/internal/messaging"
 	"github.com/andretop97/Queue_consumer_golang/internal/rabbitmq"
 )
 
-func handler(Body string) error {
-	fmt.Println(Body)
-	return nil
-}
-
 func main() {
-	config, err := Config.Load()
-	if err != nil {
-		slog.Error("Erro ao carregar configurações", "error", err)
+	if err := run(); err != nil {
+		slog.Error("encerrando com erro", "error", err)
 		os.Exit(1)
 	}
-	Logger.SetLoggerSettings()
+}
 
-	url := config.RabbitMQ.URL()
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("carregando configuração: %w", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	consumer, err := rabbitmq.NewRabbitMQConsumer(url, config.ServiceName)
-	CustomErrors.FailOnError(err, "Failed to create consumer")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	consumer, err := rabbitmq.NewRabbitMQConsumer(cfg.RabbitMQ.URL(), cfg.ServiceName, logger)
+	if err != nil {
+		return err
+	}
 	defer consumer.StopConsumer()
 
-	consumer.Consume(handler)
+	h := messaging.Chain(messaging.HandlerFunc(handle), messaging.Logging(logger), messaging.Recover())
+	return consumer.Consume(ctx, h)
+}
+
+func handle(_ context.Context, msg messaging.Message) error {
+	fmt.Println(string(msg.Body))
+	return nil
 }

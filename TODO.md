@@ -28,7 +28,7 @@ Divisão de responsabilidades (ver `CLAUDE.md`): **[Claude]** escreve apenas tes
 | A3 ✅ | `messaging`: `Message`, `Handler`, `ErrPermanent`, `Decide` | Tabela de casos do `Decide` |
 | A4 ✅ | Middlewares `Recover` e `Logging` (logger injetado) | Panic vira erro; log contém os campos esperados |
 | A5 ✅ | `rabbitmq/topology.go` | Nomes derivados; integração verifica args de DLX |
-| A6 | `rabbitmq/consumer.go` com `ctx`, erros retornados, logger injetado | Integração: ack, DLQ, cancelamento do ctx encerra |
+| A6 ✅ | `rabbitmq/consumer.go` com `ctx`, erros retornados, logger injetado | Integração: ack, DLQ, cancelamento do ctx encerra |
 | A7 | `connection.go` com `NotifyClose` | Queda simulada via API de management |
 | A8 | Retry com TTL + `x-death` → `Attempts` | Reprocessa N vezes e depois DLQ |
 | A9 | Workers + QoS | Processamento concorrente sem perder ack |
