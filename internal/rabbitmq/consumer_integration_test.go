@@ -35,23 +35,22 @@ func namesFor(serviceName string) topologyNames {
 	}
 }
 
-// brokerURL monta a URL a partir do ambiente (carregando o .env da raiz, se existir) e pula o teste se o broker não responder.
+// brokerURL obtém a URL pelo mesmo config.Load() da aplicação e pula o teste se a config estiver incompleta
+// ou o broker não responder. config.Load() procura o .env no diretório atual (internal/rabbitmq), por isso
+// o .env da raiz é carregado antes.
 func brokerURL(t *testing.T) string {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
 
-	user := config.GetEnv("RABBITMQ_DEFAULT_USER")
-	pass := config.GetEnv("RABBITMQ_DEFAULT_PASS")
-	if user == "" || pass == "" {
-		t.Skip("RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS não definidos")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Skipf("configuração do RabbitMQ incompleta: %v", err)
 	}
-	host := config.GetEnvOrDefault("RABBITMQ_DEFAULT_HOST", "localhost")
-	port := config.GetEnvOrDefault("RABBITMQ_DEFAULT_PORT", "5672")
-	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, pass, host, port)
+	url := cfg.RabbitMQ.URL()
 
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		t.Skipf("RabbitMQ inacessível em %s:%s (%v); suba com docker-compose up -d", host, port, err)
+		t.Skipf("RabbitMQ inacessível em %s:%s (%v); suba com docker-compose up -d", cfg.RabbitMQ.Host, cfg.RabbitMQ.Port, err)
 	}
 	conn.Close()
 	return url

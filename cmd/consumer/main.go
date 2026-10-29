@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"net/url"
+	"log/slog"
+	"os"
 
 	Config "github.com/andretop97/Queue_consumer_golang/internal/config"
 	CustomErrors "github.com/andretop97/Queue_consumer_golang/internal/custom_errors"
@@ -11,35 +11,22 @@ import (
 	"github.com/andretop97/Queue_consumer_golang/internal/rabbitmq"
 )
 
-func getRabbitURLfromEnv() string {
-	username := Config.GetEnv("RABBITMQ_DEFAULT_USER")
-	password := Config.GetEnv("RABBITMQ_DEFAULT_PASS")
-	hostname := Config.GetEnvOrDefault("RABBITMQ_DEFAULT_HOST", "localhost")
-	port := Config.GetEnvOrDefault("RABBITMQ_DEFAULT_PORT", "5672")
-
-	u := url.URL{
-		Scheme: "amqp",
-		User:   url.UserPassword(username, password),
-		Host:   net.JoinHostPort(hostname, port),
-		Path:   "/",
-	}
-	return u.String()
-
-}
-
 func handler(Body string) error {
 	fmt.Println(Body)
 	return nil
 }
 
 func main() {
-	Config.LoadEnv()
+	config, err := Config.Load()
+	if err != nil {
+		slog.Error("Erro ao carregar configurações", "error", err)
+		os.Exit(1)
+	}
 	Logger.SetLoggerSettings()
 
-	url := getRabbitURLfromEnv()
-	serviceName := Config.GetEnvOrDefault("SERVICE_NAME", "exemple")
+	url := config.RabbitMQ.URL()
 
-	consumer, err := rabbitmq.NewRabbitMQConsumer(url, serviceName)
+	consumer, err := rabbitmq.NewRabbitMQConsumer(url, config.ServiceName)
 	defer consumer.StopConsumer()
 
 	CustomErrors.FailOnError(err, "Failed to create consumer")

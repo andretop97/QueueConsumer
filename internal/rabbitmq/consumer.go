@@ -89,18 +89,18 @@ func (r *RabbitMQConsumer) createExchangeAndQueueWithBind(exchangeName string, q
 
 }
 
-func (consumer *RabbitMQConsumer) createSimpleQueue(serviceName string) {
+func (r *RabbitMQConsumer) createSimpleQueue(serviceName string) {
 	exchangeName := fmt.Sprintf("%s-exchange", serviceName)
 	queueName := fmt.Sprintf("%s-queue", serviceName)
-	consumer.queueName = queueName
-	consumer.createExchangeAndQueueWithBind(exchangeName, queueName, queueConfig{})
+	r.queueName = queueName
+	r.createExchangeAndQueueWithBind(exchangeName, queueName, queueConfig{})
 
 }
 
-func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string) {
+func (r *RabbitMQConsumer) createQueueWithDlq(serviceName string) {
 	exchangeName := fmt.Sprintf("%s-exchange", serviceName)
 	queueName := fmt.Sprintf("%s-queue", serviceName)
-	consumer.queueName = queueName
+	r.queueName = queueName
 
 	dlxName := fmt.Sprintf("%s-dlx", serviceName)
 	dlqName := fmt.Sprintf("%s-dlq", serviceName)
@@ -108,9 +108,9 @@ func (consumer *RabbitMQConsumer) createQueueWithDlq(serviceName string) {
 	qConfig := queueConfig{}
 	qConfig.dlxName = &dlxName
 
-	consumer.createExchangeAndQueueWithBind(dlxName, dlqName, queueConfig{})
+	r.createExchangeAndQueueWithBind(dlxName, dlqName, queueConfig{})
 
-	consumer.createExchangeAndQueueWithBind(exchangeName, queueName, qConfig)
+	r.createExchangeAndQueueWithBind(exchangeName, queueName, qConfig)
 
 }
 

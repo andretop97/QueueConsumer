@@ -1,16 +1,31 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// unsetEnv garante que a variável não existe durante o teste e restaura o valor original depois.
-func unsetEnv(t *testing.T, key string) {
+var configEnvVars = []string{
+	"RABBITMQ_DEFAULT_USER",
+	"RABBITMQ_DEFAULT_PASS",
+	"RABBITMQ_DEFAULT_HOST",
+	"RABBITMQ_DEFAULT_PORT",
+	"SERVICE_NAME",
+	"LOG_LEVEL",
+}
+
+// isolateEnv remove todas as variáveis lidas pelo Load e muda para um diretório vazio (sem .env).
+// t.Setenv registra a restauração, o que também desfaz o que o godotenv gravar no processo durante o teste.
+func isolateEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv(key, "")
-	os.Unsetenv(key)
+	for _, key := range configEnvVars {
+		t.Setenv(key, "")
+		os.Unsetenv(key)
+	}
+	chdir(t, t.TempDir())
 }
 
 // chdir muda o diretório de trabalho durante o teste (t.Chdir só existe a partir do Go 1.24).
@@ -26,90 +41,150 @@ func chdir(t *testing.T, dir string) {
 	t.Cleanup(func() { os.Chdir(original) })
 }
 
-func TestGetEnvOrDefault(t *testing.T) {
-	const key = "QUEUE_CONSUMER_TEST_VAR"
-
-	t.Run("variável definida retorna o valor", func(t *testing.T) {
-		t.Setenv(key, "valor")
-		if got := GetEnvOrDefault(key, "padrao"); got != "valor" {
-			t.Errorf("GetEnvOrDefault() = %q, esperado %q", got, "valor")
-		}
-	})
-
-	t.Run("variável ausente retorna o default", func(t *testing.T) {
-		unsetEnv(t, key)
-		if got := GetEnvOrDefault(key, "padrao"); got != "padrao" {
-			t.Errorf("GetEnvOrDefault() = %q, esperado %q", got, "padrao")
-		}
-	})
-
-	t.Run("variável definida como vazia retorna vazio, não o default", func(t *testing.T) {
-		t.Setenv(key, "")
-		if got := GetEnvOrDefault(key, "padrao"); got != "" {
-			t.Errorf("GetEnvOrDefault() = %q, esperado string vazia", got)
-		}
-	})
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("RABBITMQ_DEFAULT_USER", "user")
+	t.Setenv("RABBITMQ_DEFAULT_PASS", "pass")
+	t.Setenv("RABBITMQ_DEFAULT_HOST", "rabbit")
+	t.Setenv("RABBITMQ_DEFAULT_PORT", "5672")
 }
 
-func TestGetEnv(t *testing.T) {
-	const key = "QUEUE_CONSUMER_TEST_VAR"
-
-	t.Run("variável definida retorna o valor", func(t *testing.T) {
-		t.Setenv(key, "valor")
-		if got := GetEnv(key); got != "valor" {
-			t.Errorf("GetEnv() = %q, esperado %q", got, "valor")
-		}
-	})
-
-	t.Run("variável ausente retorna vazio", func(t *testing.T) {
-		unsetEnv(t, key)
-		if got := GetEnv(key); got != "" {
-			t.Errorf("GetEnv() = %q, esperado string vazia", got)
-		}
-	})
+func writeDotEnv(t *testing.T, content string) {
+	t.Helper()
+	if err := os.WriteFile(".env", []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestLoadEnv(t *testing.T) {
-	const key = "QUEUE_CONSUMER_TEST_DOTENV"
+func TestLoadReadsAllVariables(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("SERVICE_NAME", "pedidos")
+	t.Setenv("LOG_LEVEL", "DEBUG")
 
-	t.Run("carrega variáveis do .env no diretório atual", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(key+"=do_arquivo\n"), 0o600); err != nil {
-			t.Fatal(err)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro = %v", err)
+	}
+
+	want := Config{
+		ServiceName: "pedidos",
+		LogLevel:    slog.LevelDebug,
+		RabbitMQ:    RabbitMQ{User: "user", Password: "pass", Host: "rabbit", Port: "5672"},
+	}
+	if *cfg != want {
+		t.Errorf("Load() = %+v, esperado %+v", *cfg, want)
+	}
+}
+
+func TestLoadAppliesDefaults(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("RABBITMQ_DEFAULT_USER", "user")
+	t.Setenv("RABBITMQ_DEFAULT_PASS", "pass")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro = %v", err)
+	}
+	if cfg.ServiceName != "QueueConsumer" {
+		t.Errorf("ServiceName = %q, esperado default %q", cfg.ServiceName, "QueueConsumer")
+	}
+	if cfg.LogLevel != slog.LevelInfo {
+		t.Errorf("LogLevel = %v, esperado default %v", cfg.LogLevel, slog.LevelInfo)
+	}
+	if cfg.RabbitMQ.Host != "localhost" || cfg.RabbitMQ.Port != "5672" {
+		t.Errorf("Host:Port = %s:%s, esperado default localhost:5672", cfg.RabbitMQ.Host, cfg.RabbitMQ.Port)
+	}
+}
+
+func TestLoadReportsAllMissingRequiredVariables(t *testing.T) {
+	isolateEnv(t)
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() = nil, esperado erro com variáveis obrigatórias ausentes")
+	}
+	for _, key := range []string{"RABBITMQ_DEFAULT_USER", "RABBITMQ_DEFAULT_PASS"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("erro deveria mencionar %s, obtido: %v", key, err)
 		}
-		chdir(t, dir)
-		unsetEnv(t, key)
+	}
+}
 
-		LoadEnv()
+func TestLoadRejectsEmptyRequiredVariable(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("RABBITMQ_DEFAULT_PASS", "")
 
-		if got := os.Getenv(key); got != "do_arquivo" {
-			t.Errorf("%s = %q, esperado %q", key, got, "do_arquivo")
-		}
-	})
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "RABBITMQ_DEFAULT_PASS") {
+		t.Errorf("Load() erro = %v, esperado erro mencionando RABBITMQ_DEFAULT_PASS", err)
+	}
+}
 
-	t.Run("não sobrescreve variável já definida no ambiente", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(key+"=do_arquivo\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		chdir(t, dir)
-		t.Setenv(key, "do_ambiente")
+func TestLoadRejectsInvalidLogLevel(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("LOG_LEVEL", "verbose")
 
-		LoadEnv()
+	// Erros de conversão da caarlos0/env citam o campo Go ("LogLevel"), não a variável de ambiente.
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "LogLevel") || !strings.Contains(err.Error(), "verbose") {
+		t.Errorf("Load() erro = %v, esperado erro de conversão do LogLevel com o valor inválido", err)
+	}
+}
 
-		if got := os.Getenv(key); got != "do_ambiente" {
-			t.Errorf("%s = %q, esperado %q", key, got, "do_ambiente")
-		}
-	})
+func TestLoadRunsValidation(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("SERVICE_NAME", "amq.pedidos")
 
-	t.Run("sem .env não entra em pânico nem altera o ambiente", func(t *testing.T) {
-		chdir(t, t.TempDir())
-		unsetEnv(t, key)
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "SERVICE_NAME") {
+		t.Errorf("Load() erro = %v, esperado erro de validação mencionando SERVICE_NAME", err)
+	}
+}
 
-		LoadEnv()
+func TestLoadReadsDotEnvFromWorkingDirectory(t *testing.T) {
+	isolateEnv(t)
+	writeDotEnv(t, strings.Join([]string{
+		"RABBITMQ_DEFAULT_USER=do_arquivo",
+		"RABBITMQ_DEFAULT_PASS=senha_arquivo",
+		"RABBITMQ_DEFAULT_HOST=rabbit",
+		"RABBITMQ_DEFAULT_PORT=5672",
+	}, "\n"))
 
-		if _, exists := os.LookupEnv(key); exists {
-			t.Errorf("%s não deveria existir", key)
-		}
-	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro = %v", err)
+	}
+	if cfg.RabbitMQ.User != "do_arquivo" || cfg.RabbitMQ.Password != "senha_arquivo" {
+		t.Errorf("credenciais = %q/%q, esperado valores do .env", cfg.RabbitMQ.User, cfg.RabbitMQ.Password)
+	}
+}
+
+func TestLoadEnvironmentTakesPrecedenceOverDotEnv(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	writeDotEnv(t, "RABBITMQ_DEFAULT_USER=do_arquivo\n")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro = %v", err)
+	}
+	if cfg.RabbitMQ.User != "user" {
+		t.Errorf("User = %q, esperado o valor do ambiente %q", cfg.RabbitMQ.User, "user")
+	}
+}
+
+func TestLoadWithoutDotEnvUsesEnvironmentOnly(t *testing.T) {
+	isolateEnv(t)
+	setRequiredEnv(t)
+	if _, err := os.Stat(filepath.Join(".", ".env")); !os.IsNotExist(err) {
+		t.Fatalf("pré-condição: não deveria haver .env no diretório do teste")
+	}
+
+	if _, err := Load(); err != nil {
+		t.Errorf("Load() erro = %v, esperado nil sem .env", err)
+	}
 }
